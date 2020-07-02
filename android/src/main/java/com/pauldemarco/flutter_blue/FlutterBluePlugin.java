@@ -102,8 +102,23 @@ public class FlutterBluePlugin implements FlutterPlugin, ActivityAware, MethodCa
         instance.setup(registrar.messenger(), application, activity, registrar, null);
     }
 
-    public FlutterBluePlugin() {}
-
+    FlutterBluePlugin(Registrar r){
+        this.registrar = r;
+        this.channel = new MethodChannel(registrar.messenger(), NAMESPACE+"/methods");
+        this.stateChannel = new EventChannel(registrar.messenger(), NAMESPACE+"/state");
+        this.scanResultChannel = new EventChannel(registrar.messenger(), NAMESPACE+"/scanResult");
+        this.servicesDiscoveredChannel = new EventChannel(registrar.messenger(), NAMESPACE+"/servicesDiscovered");
+        this.characteristicReadChannel = new EventChannel(registrar.messenger(), NAMESPACE+"/characteristicRead");
+        this.descriptorReadChannel = new EventChannel(registrar.messenger(), NAMESPACE+"/descriptorRead");
+        this.mBluetoothManager = (BluetoothManager) r.context().getSystemService(Context.BLUETOOTH_SERVICE);
+        this.mBluetoothAdapter = mBluetoothManager.getAdapter();
+        channel.setMethodCallHandler(this);
+        stateChannel.setStreamHandler(stateHandler);
+        scanResultChannel.setStreamHandler(scanResultsHandler);
+        servicesDiscoveredChannel.setStreamHandler(servicesDiscoveredHandler);
+        characteristicReadChannel.setStreamHandler(characteristicReadHandler);
+        descriptorReadChannel.setStreamHandler(descriptorReadHandler);
+    }
     @Override
     public void onAttachedToEngine(FlutterPluginBinding binding) {
         pluginBinding = binding;
@@ -197,7 +212,13 @@ public class FlutterBluePlugin implements FlutterPlugin, ActivityAware, MethodCa
                 result.success(null);
                 break;
             }
-
+            
+            case "setUniqueId":
+            {
+                result.success(null);
+                break;
+            }
+            
             case "state":
             {
                 Protos.BluetoothState.Builder p = Protos.BluetoothState.newBuilder();
@@ -240,8 +261,14 @@ public class FlutterBluePlugin implements FlutterPlugin, ActivityAware, MethodCa
 
             case "startScan":
             {
-                if (ContextCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_FINE_LOCATION)
-                        != PackageManager.PERMISSION_GRANTED) {
+                boolean hasPermssions = (ContextCompat.checkSelfPermission(registrar.context(), Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED);          
+
+                if (registrar.activity() == null && !hasPermssions) {
+                    result.error("scan_error","bluetooth is not enabled",hasPermssions);
+                    break;
+                }
+
+                if (!hasPermssions) {
                     ActivityCompat.requestPermissions(
                             activity,
                             new String[] {
@@ -728,13 +755,13 @@ public class FlutterBluePlugin implements FlutterPlugin, ActivityAware, MethodCa
         public void onListen(Object o, EventChannel.EventSink eventSink) {
             sink = eventSink;
             IntentFilter filter = new IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED);
-            activity.registerReceiver(mReceiver, filter);
+            registrar.context().registerReceiver(mReceiver, filter);
         }
 
         @Override
         public void onCancel(Object o) {
             sink = null;
-            activity.unregisterReceiver(mReceiver);
+            registrar.context().unregisterReceiver(mReceiver);
         }
     };
 
